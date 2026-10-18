@@ -43,16 +43,29 @@ interface KeyboardActionListener {
  *   onDraw ve onTouchEvent hiçbir nesne tahsis etmez.
  * - Dokunma alanında ölü bölge yoktur: tuşlar arası görsel boşluğa (ve kenarlara)
  *   dokunmak en yakın tuşa gider.
- * - Tuş önizleme balonu ve uzun basma paneli, IME penceresinin üst sınırının
- *   dışına taşabilmek için dokunulamaz (FLAG_NOT_TOUCHABLE) birer PopupWindow
- *   alt penceresinde çizilir; dokunma akışı her zaman bu görünümde kalır.
+ * - Tuş önizleme balonu ayrı pencere değildir: IME'nin kendi penceresinde, kök görünüm
+ *   ([previewHost]) tüm çocukların üstüne çizer. Uzun basma paneli, IME penceresinin üst
+ *   sınırının dışına taşabilmek için dokunulamaz (FLAG_NOT_TOUCHABLE) bir PopupWindow alt
+ *   penceresinde çizilir. Dokunma akışı her zaman bu görünümde kalır.
  * - Hiçbir zamanlayıcı/animasyon arka planda dönmez; görünüm pencereden ayrılınca
- *   ya da gizlenince tüm Handler mesajları ve popup'lar temizlenir.
+ *   ya da gizlenince tüm Handler mesajları, önizleme ve popup temizlenir.
  */
 class KeyboardView(context: Context) : View(context) {
 
     /** Tuş olaylarının alıcısı (servis). */
     var listener: KeyboardActionListener? = null
+
+    /**
+     * Tuş önizleme balonunu çizen kök görünüm (servis kurar). Atanınca güncel tema ölçüleri ona
+     * aktarılır; null iken önizleme gösterilmez.
+     */
+    var previewHost: KeyboardRootLayout? = null
+        set(value) {
+            if (value === field) return
+            hidePreview()
+            field = value
+            configurePreviewHost()
+        }
 
     // ---------------------------------------------------------------- durum
     private var currentLayout: KeyboardLayout? = null
@@ -134,23 +147,17 @@ class KeyboardView(context: Context) : View(context) {
     private val repeatRunnable = Runnable { onRepeatTick() }
     private val previewHideRunnable = Runnable { hidePreview() }
 
+    // ------------------------------------------------------------- önizleme
+    /** Önizleme balonunun gösterdiği tuş; gizliyken -1. */
+    private var previewKey = -1
+
     // ------------------------------------------------------------- popup'lar
     private val windowLoc = IntArray(2)
-    /** Gösterilen önizleme görünümün üst kenarının dışına (uygulamanın üstüne) taşıyor mu. */
-    private var previewOutside = false
-    /**
-     * Tuş önizleme balonu (çok kısa süreli, bkz. [PREVIEW_MAX_VISIBLE_MS]). [KEY_PREVIEW_ENABLED]
-     * false olursa ne içerik görünümü ne de PopupWindow yaratılır: hiçbir IME alt penceresi açılmaz.
-     */
-    private val previewContent: KeyPreviewContent? =
-        if (KEY_PREVIEW_ENABLED) KeyPreviewContent(context) else null
-    private val previewPopup: PopupWindow? = previewContent?.let { createPopup(it) }
     private val moreKeysContent = MoreKeysContent(context)
     private val moreKeysPopup: PopupWindow = createPopup(moreKeysContent)
 
     init {
         isHapticFeedbackEnabled = true
-        previewContent?.visibility = View.INVISIBLE
         applyThemeMetrics()
     }
 
@@ -159,7 +166,7 @@ class KeyboardView(context: Context) : View(context) {
     /** Yeni düzeni kurar; tuş geometrisini yeniden hesaplar. */
     fun setLayout(layout: KeyboardLayout) {
         if (layout === currentLayout) return
-        resetTouch(dismissWindows = false)
+        resetTouch()
         currentLayout = layout
 
         val rows = layout.rows
@@ -217,16 +224,16 @@ class KeyboardView(context: Context) : View(context) {
     fun setShiftState(state: ShiftState) {
         if (state == shiftState) return
         shiftState = state
-        val k = activeKey
-        val content = previewContent
-        if (content != null && k in 0 until keyCount && !longPressMode && content.visibility == View.VISIBLE) {
-            content.setLabel(if (state != ShiftState.OFF) labelUpper[k] else labelLower[k])
-        }
+        // Görünen balon aynı tuşta yeni etiketle yeniden çizilir; süre baştan başlamaz.
+        val k = previewKey
+        if (k >= 0 && !placePreview(k)) hidePreview()
         invalidate()
     }
 
     /** Temayı uygular. */
     fun setTheme(theme: KlavyeTheme) {
+        // Tuş geometrisi yeniden hesaplanacak; eski konumdaki balon kalmasın.
+        hidePreview()
         currentTheme = theme
         applyThemeMetrics()
         computeGeometry()
@@ -307,10 +314,17 @@ class KeyboardView(context: Context) : View(context) {
         slideSlopPx = dp(6f)
         panelSlopPx = ViewConfiguration.get(context).scaledTouchSlop * 0.5f
 
-        previewContent?.configure(t.popupBackground, t.popupText, keyTextPx * 1.5f, cornerPx * 1.5f)
+        configurePreviewHost()
         moreKeysContent.configure(
             t.popupBackground, t.accentKeyBackground, t.popupText, keyTextPx * 1.05f, cornerPx * 1.5f
         )
+    }
+
+    /** Önizleme balonunun renk/boyutlarını kök görünüme aktarır (tema değişiminde ve kök atanınca). */
+    private fun configurePreviewHost() {
+        if (!KEY_PREVIEW_ENABLED) return
+        val t = currentTheme
+        previewHost?.configurePreview(t.popupBackground, t.popupText, keyTextPx * 1.5f, cornerPx * 1.5f)
     }
 
     /** Tuş hücrelerini mevcut genişlik/yüksekliğe göre hesaplar (onDraw'da değil). */
@@ -549,7 +563,7 @@ class KeyboardView(context: Context) : View(context) {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 // Düzgün akışta burada aktif parmak olmaz; kalmışsa (kayıp olay) sessizce temizle.
-                if (activePointerId != INVALID_POINTER) resetTouch(dismissWindows = false)
+                if (activePointerId != INVALID_POINTER) resetTouch()
                 val idx = event.actionIndex
                 onPointerDown(event.getPointerId(idx), event.getX(idx), event.getY(idx))
             }
@@ -582,11 +596,11 @@ class KeyboardView(context: Context) : View(context) {
                         onActiveMove(event.getX(idx), event.getY(idx), releasing = true)
                         commitActive()
                     } else {
-                        resetTouch(dismissWindows = false)
+                        resetTouch()
                     }
                 }
             }
-            MotionEvent.ACTION_CANCEL -> resetTouch(dismissWindows = false)
+            MotionEvent.ACTION_CANCEL -> resetTouch()
         }
         return true
     }
@@ -648,7 +662,7 @@ class KeyboardView(context: Context) : View(context) {
         val k = activeKey
         val key = if (k in 0 until keyCount) keys[k] else null
         val text = if (longPressMode) moreKeysContent.selectedText() else null
-        resetTouch(dismissWindows = false)
+        resetTouch()
         val l = listener ?: return
         if (text != null) {
             if (text.isNotEmpty()) l.onText(text)
@@ -734,18 +748,14 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     /** Tüm dokunma durumunu ve zamanlayıcıları sıfırlar; dinleyici çağrılmaz. */
-    private fun resetTouch(dismissWindows: Boolean) {
+    private fun resetTouch() {
         timerHandler.removeCallbacksAndMessages(null)
         activePointerId = INVALID_POINTER
         activeKey = -1
         longPressMode = false
         panelMoved = false
         repeatCount = 0
-        if (dismissWindows) {
-            dismissPreview()
-        } else {
-            hidePreview()
-        }
+        hidePreview()
         dismissMoreKeys()
         invalidate()
     }
@@ -768,21 +778,32 @@ class KeyboardView(context: Context) : View(context) {
     private fun canShowPopup(): Boolean =
         isAttachedToWindow && windowToken != null && windowVisibility == View.VISIBLE && width > 0
 
-    /** CHAR tuşunun üstünde büyütülmüş önizleme balonu. */
+    /** CHAR tuşunun üstünde büyütülmüş önizleme balonu; en fazla [PREVIEW_MAX_VISIBLE_MS] görünür. */
     private fun showPreview(k: Int) {
-        // Önizleme kapalıysa (varsayılan) hiçbir şey yapılmaz; pencere zaten yaratılmadı.
-        val content = previewContent ?: return
-        val popup = previewPopup ?: return
+        // Önizleme kapalıysa hiçbir şey yapılmaz; kök görünüme hiç çağrı gitmez.
+        if (!KEY_PREVIEW_ENABLED) return
+        if (!placePreview(k)) {
+            hidePreview()
+            return
+        }
+        // Balon en fazla PREVIEW_MAX_VISIBLE_MS görünsün; yeni tuşta süre baştan başlar.
+        timerHandler.removeCallbacks(previewHideRunnable)
+        timerHandler.postDelayed(previewHideRunnable, PREVIEW_MAX_VISIBLE_MS)
+    }
+
+    /**
+     * [k] tuşunun balonunu güncel shift durumunun etiketiyle kök görünümde gösterir (konum bu
+     * görünümün koordinatında hesaplanır, çeviriyi kök yapar). Zamanlayıcıya dokunmaz.
+     * @return gösterilemiyorsa (CHAR değil, etiket boş, görünüm hazır değil, kök yok) false
+     */
+    private fun placePreview(k: Int): Boolean {
+        if (!KEY_PREVIEW_ENABLED) return false
+        val host = previewHost ?: return false
+        if (k !in 0 until keyCount) return false
         val key = keys[k]
-        if (key.type != KeyType.CHAR) {
-            hidePreview()
-            return
-        }
+        if (key.type != KeyType.CHAR) return false
         val label = if (shiftState != ShiftState.OFF) labelUpper[k] else labelLower[k]
-        if (label.isEmpty() || !canShowPopup()) {
-            hidePreview()
-            return
-        }
+        if (label.isEmpty() || !canShowPopup()) return false
         val half = keyGapPx / 2f
         val vl = visL[k]
         val vr = visR[k]
@@ -795,69 +816,16 @@ class KeyboardView(context: Context) : View(context) {
         val maxLeft = (width - pw).coerceAtLeast(0)
         val px = ((vl + vr) / 2f - pw / 2f).roundToInt().coerceIn(0, maxLeft)
         val py = (vt - ph - dp(2f)).roundToInt()
-
-        getLocationInWindow(windowLoc)
-        val wx = windowLoc[0] + px
-        val wy = windowLoc[1] + py
-        content.setLabel(label)
-        if (content.visibility != View.VISIBLE) content.visibility = View.VISIBLE
-        try {
-            if (popup.isShowing) {
-                popup.update(wx, wy, pw, ph)
-            } else {
-                popup.width = pw
-                popup.height = ph
-                popup.showAtLocation(this, Gravity.NO_GRAVITY, wx, wy)
-            }
-            previewOutside = py < 0
-            // Balon en fazla PREVIEW_MAX_VISIBLE_MS görünsün; yeni tuşta süre baştan başlar.
-            timerHandler.removeCallbacks(previewHideRunnable)
-            timerHandler.postDelayed(previewHideRunnable, PREVIEW_MAX_VISIBLE_MS)
-        } catch (e: RuntimeException) {
-            // Pencere token'ı geçersiz / pencere kapanıyor: önizlemesiz devam. PopupWindow
-            // addView'dan ÖNCE isShowing=true yaptığı için tam dismiss ile durumu sıfırla.
-            dismissPreview()
-        }
+        previewKey = k
+        host.showKeyPreview(this, px.toFloat(), py.toFloat(), (px + pw).toFloat(), (py + ph).toFloat(), label)
+        return true
     }
 
-    /**
-     * Önizlemeyi gizler. Pencere, tuşlar arası her vuruşta yeniden eklenip kaldırılmasın
-     * (addView/removeView + yüzey yaratma maliyeti) diye açık kalır, içerik INVISIBLE olur.
-     * Ancak son konumu klavyenin üstüne (uygulamanın üzerine) taşıyorsa pencere klavyenin
-     * kendi alanına park edilir: Android 12+ başka UID'li, dokunulamaz bir pencerenin altına
-     * gelen dokunuşları engelleyebildiği için boş pencere uygulamanın üstünde bırakılmaz.
-     */
+    /** Önizlemeyi gizler ve süre zamanlayıcısını iptal eder; gizliyse kökte bir şey değişmez. */
     private fun hidePreview() {
         timerHandler.removeCallbacks(previewHideRunnable)
-        val content = previewContent ?: return
-        val popup = previewPopup ?: return
-        if (content.visibility == View.VISIBLE) content.visibility = View.INVISIBLE
-        if (!previewOutside) return
-        previewOutside = false
-        if (!popup.isShowing) return
-        if (!isAttachedToWindow || windowToken == null) {
-            dismissPreview()
-            return
-        }
-        getLocationInWindow(windowLoc)
-        try {
-            popup.update(windowLoc[0], windowLoc[1], -1, -1)
-        } catch (e: RuntimeException) {
-            dismissPreview()
-        }
-    }
-
-    private fun dismissPreview() {
-        timerHandler.removeCallbacks(previewHideRunnable)
-        previewOutside = false
-        val content = previewContent ?: return
-        val popup = previewPopup ?: return
-        if (content.visibility == View.VISIBLE) content.visibility = View.INVISIBLE
-        try {
-            if (popup.isShowing) popup.dismiss()
-        } catch (e: RuntimeException) {
-            // Üst pencere zaten kaldırılmış olabilir.
-        }
+        previewKey = -1
+        if (KEY_PREVIEW_ENABLED) previewHost?.hideKeyPreview()
     }
 
     private fun dismissMoreKeys() {
@@ -923,18 +891,18 @@ class KeyboardView(context: Context) : View(context) {
     // ============================================================ yaşam döngüsü
 
     override fun onDetachedFromWindow() {
-        resetTouch(dismissWindows = true)
+        resetTouch()
         super.onDetachedFromWindow()
     }
 
     override fun onWindowVisibilityChanged(visibility: Int) {
         super.onWindowVisibilityChanged(visibility)
-        if (visibility != View.VISIBLE) resetTouch(dismissWindows = true)
+        if (visibility != View.VISIBLE) resetTouch()
     }
 
     override fun onVisibilityChanged(changedView: View, visibility: Int) {
         super.onVisibilityChanged(changedView, visibility)
-        if (visibility != View.VISIBLE) resetTouch(dismissWindows = true)
+        if (visibility != View.VISIBLE) resetTouch()
     }
 
     private fun dp(v: Float): Float = v * resources.displayMetrics.density
@@ -947,14 +915,14 @@ class KeyboardView(context: Context) : View(context) {
         const val REF_TEXT_SIZE = 100f
 
         /**
-         * Tuşa basınca üstte çıkan önizleme balonu. AÇIK, ama çok kısa süre görünür: en fazla
-         * [PREVIEW_MAX_VISIBLE_MS], parmak kalkınca daha erken gizlenir. false olsaydı
-         * PopupWindow hiç yaratılmazdı; uzun basma paneli etkilenmez.
+         * Tuşa basınca üstte çıkan önizleme balonu (kök görünüm çizer). AÇIK, ama çok kısa süre
+         * görünür: en fazla [PREVIEW_MAX_VISIBLE_MS], parmak kalkınca daha erken gizlenir. false
+         * olsaydı kök görünüme hiç çağrı gitmezdi; uzun basma paneli etkilenmez.
          */
         const val KEY_PREVIEW_ENABLED = true
 
         /** Önizleme balonunun parmak basılı olsa bile ekranda kalabileceği en uzun süre (ms). */
-        const val PREVIEW_MAX_VISIBLE_MS = 80L
+        const val PREVIEW_MAX_VISIBLE_MS = 50L
 
         /** Yatay kenar boşluğu (her yan): 12 birimlik satır = genişlik − 2 × bu. */
         const val EDGE_H_DP = 1f

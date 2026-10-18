@@ -8,17 +8,17 @@ import android.view.View
 import kotlin.math.ceil
 
 /**
- * Tuş önizleme balonunun içeriği. KeyboardView bunu dokunulamaz bir PopupWindow
- * içinde gösterir. Paint/RectF önceden hazır; onDraw tahsis yapmaz.
+ * Tuş önizleme balonunun çizimi: yuvarlak köşeli arka plan + ortalanmış etiket. Görünüm
+ * değildir; KeyboardRootLayout balonu kendi dispatchDraw'unda bununla çizer.
+ * Paint/RectF önceden hazır; [draw] tahsis yapmaz.
  */
-internal class KeyPreviewContent(context: Context) : View(context) {
+internal class KeyPreviewPainter {
 
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
     private val fm = Paint.FontMetrics()
     private val rect = RectF()
 
-    private var label: String = ""
     private var cornerPx = 0f
     private var baseTextSize = 0f
     private var baselineFactor = 0f
@@ -33,22 +33,14 @@ internal class KeyPreviewContent(context: Context) : View(context) {
         textPaint.getFontMetrics(fm)
         baselineFactor = -(fm.ascent + fm.descent) / 2f / REF_SIZE
         textPaint.textSize = textSizePx
-        invalidate()
     }
 
-    /** Gösterilecek metni değiştirir. */
-    fun setLabel(text: String) {
-        if (text != label) {
-            label = text
-            invalidate()
-        }
-    }
-
-    override fun onDraw(canvas: Canvas) {
-        val w = width.toFloat()
-        val h = height.toFloat()
+    /** Balonu verilen dikdörtgene çizer; etiket genişliğin %86'sına sığacak kadar küçülür. */
+    fun draw(canvas: Canvas, left: Float, top: Float, right: Float, bottom: Float, label: String) {
+        val w = right - left
+        val h = bottom - top
         if (w <= 0f || h <= 0f) return
-        rect.set(0f, 0f, w, h)
+        rect.set(left, top, right, bottom)
         canvas.drawRoundRect(rect, cornerPx, cornerPx, bgPaint)
         if (label.isEmpty()) return
         var size = baseTextSize
@@ -59,7 +51,7 @@ internal class KeyPreviewContent(context: Context) : View(context) {
             size = size * maxW / tw
             textPaint.textSize = size
         }
-        canvas.drawText(label, w / 2f, h / 2f + baselineFactor * size, textPaint)
+        canvas.drawText(label, left + w / 2f, top + h / 2f + baselineFactor * size, textPaint)
     }
 
     private companion object {

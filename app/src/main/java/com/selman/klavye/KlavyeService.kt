@@ -29,6 +29,7 @@ import com.selman.klavye.suggest.SuggesterFactory
 import com.selman.klavye.ui.KlavyeTheme
 import com.selman.klavye.ui.Themes
 import com.selman.klavye.view.KeyboardActionListener
+import com.selman.klavye.view.KeyboardRootLayout
 import com.selman.klavye.view.KeyboardView
 import com.selman.klavye.view.SuggestionStripListener
 import com.selman.klavye.view.SuggestionStripView
@@ -159,7 +160,8 @@ class KlavyeService : InputMethodService() {
     override fun onCreateInputView(): View {
         configureWindow()
 
-        val root = LinearLayout(this)
+        // Kök, tuş önizleme balonunu tüm çocukların üstüne kendisi çizer (ayrı pencere yok).
+        val root = KeyboardRootLayout(this)
         root.orientation = LinearLayout.VERTICAL
         root.setBackgroundColor(klavyeTheme.background)
         root.setOnApplyWindowInsetsListener { v, insets -> applySystemInsets(v, insets) }
@@ -184,6 +186,7 @@ class KlavyeService : InputMethodService() {
         val kv = KeyboardView(this)
         kv.setTheme(klavyeTheme)
         kv.listener = keyListener
+        kv.previewHost = root
         val layout = currentLayout ?: Layouts.TURKISH_Q
         kv.setLayout(layout)
         currentLayout = layout
