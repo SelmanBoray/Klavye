@@ -132,14 +132,15 @@ class KeyboardView(context: Context) : View(context) {
     private val timerHandler = Handler(Looper.getMainLooper())
     private val longPressRunnable = Runnable { onLongPressTimeout() }
     private val repeatRunnable = Runnable { onRepeatTick() }
+    private val previewHideRunnable = Runnable { hidePreview() }
 
     // ------------------------------------------------------------- popup'lar
     private val windowLoc = IntArray(2)
     /** Gösterilen önizleme görünümün üst kenarının dışına (uygulamanın üstüne) taşıyor mu. */
     private var previewOutside = false
     /**
-     * Tuş önizleme balonu. [KEY_PREVIEW_ENABLED] false iken (Selman'ın SwiftKey'inde kapalı)
-     * ne içerik görünümü ne de PopupWindow yaratılır: hiçbir IME alt penceresi açılmaz.
+     * Tuş önizleme balonu (çok kısa süreli, bkz. [PREVIEW_MAX_VISIBLE_MS]). [KEY_PREVIEW_ENABLED]
+     * false olursa ne içerik görünümü ne de PopupWindow yaratılır: hiçbir IME alt penceresi açılmaz.
      */
     private val previewContent: KeyPreviewContent? =
         if (KEY_PREVIEW_ENABLED) KeyPreviewContent(context) else null
@@ -809,6 +810,9 @@ class KeyboardView(context: Context) : View(context) {
                 popup.showAtLocation(this, Gravity.NO_GRAVITY, wx, wy)
             }
             previewOutside = py < 0
+            // Balon en fazla PREVIEW_MAX_VISIBLE_MS görünsün; yeni tuşta süre baştan başlar.
+            timerHandler.removeCallbacks(previewHideRunnable)
+            timerHandler.postDelayed(previewHideRunnable, PREVIEW_MAX_VISIBLE_MS)
         } catch (e: RuntimeException) {
             // Pencere token'ı geçersiz / pencere kapanıyor: önizlemesiz devam. PopupWindow
             // addView'dan ÖNCE isShowing=true yaptığı için tam dismiss ile durumu sıfırla.
@@ -824,6 +828,7 @@ class KeyboardView(context: Context) : View(context) {
      * gelen dokunuşları engelleyebildiği için boş pencere uygulamanın üstünde bırakılmaz.
      */
     private fun hidePreview() {
+        timerHandler.removeCallbacks(previewHideRunnable)
         val content = previewContent ?: return
         val popup = previewPopup ?: return
         if (content.visibility == View.VISIBLE) content.visibility = View.INVISIBLE
@@ -843,6 +848,7 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private fun dismissPreview() {
+        timerHandler.removeCallbacks(previewHideRunnable)
         previewOutside = false
         val content = previewContent ?: return
         val popup = previewPopup ?: return
@@ -941,10 +947,14 @@ class KeyboardView(context: Context) : View(context) {
         const val REF_TEXT_SIZE = 100f
 
         /**
-         * Tuşa basınca üstte çıkan önizleme balonu. Selman'ın isteğiyle KAPALI (SwiftKey'inde de
-         * kapalı). false iken önizleme PopupWindow'u hiç yaratılmaz; uzun basma paneli etkilenmez.
+         * Tuşa basınca üstte çıkan önizleme balonu. AÇIK, ama çok kısa süre görünür: en fazla
+         * [PREVIEW_MAX_VISIBLE_MS], parmak kalkınca daha erken gizlenir. false olsaydı
+         * PopupWindow hiç yaratılmazdı; uzun basma paneli etkilenmez.
          */
-        const val KEY_PREVIEW_ENABLED = false
+        const val KEY_PREVIEW_ENABLED = true
+
+        /** Önizleme balonunun parmak basılı olsa bile ekranda kalabileceği en uzun süre (ms). */
+        const val PREVIEW_MAX_VISIBLE_MS = 80L
 
         /** Yatay kenar boşluğu (her yan): 12 birimlik satır = genişlik − 2 × bu. */
         const val EDGE_H_DP = 1f
