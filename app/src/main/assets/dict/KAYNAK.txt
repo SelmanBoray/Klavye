@@ -1,0 +1,16 @@
+Kaynak: Hermit Dave - FrequencyWords (OpenSubtitles 2018 tabanli)
+URL: https://github.com/hermitdave/FrequencyWords
+Dosyalar: https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/tr/tr_50k.txt
+          https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/tr/tr_full.txt
+Lisans: icerik CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/); depo kodu MIT.
+Atif: (c) Hermit Dave, FrequencyWords. Bu dosya turetilmis bir uyarlamadir (filtrelenmis, birlestirilmis, yeniden siralanmis); ayni lisansla (CC BY-SA 4.0) paylasilir.
+Uretim: tools/build_dict.py (py -3.12 -I tools\build_dict.py)
+Tarih: 2026-10-18
+Biçim: kelime<TAB>siklik, UTF-8 BOM'suz, \n; siklik azalan sirali.
+Filtreler:
+ - Turkce buyuk/kucuk harf eslemesi (I->i dotless, İ->i), sonra kucuk harf; buyuk/kucuk yazim varyantlarinin siklik degerleri toplandi.
+ - Yalniz a-z, ç ğ ı ö ş ü, â î û; rakam, kesme, tire ve diger tum karakterler iceren satirlar atildi.
+ - q, w, x iceren kelimeler atildi (yabanci gurultu).
+ - Tek harfli kelimeler atildi, yalniz a, e, o kaldi.
+ - Uc veya daha fazla ayni harf ust uste gelen kelimeler atildi (aaa, hmmm gibi altyazi gurultusu).
+ - tr_50k filtre sonrasi 60000'e yetmedigi icin tr_full.txt kullanildi; en sik 60000 kelime tutuldu.
