@@ -827,7 +827,7 @@ class KeyboardView(context: Context) : View(context) {
         val ph = max(vh * PREVIEW_HEIGHT_FACTOR, dp(PREVIEW_MIN_HEIGHT_DP)).roundToInt()
         val maxLeft = (width - pw).coerceAtLeast(0)
         val px = ((vl + vr) / 2f - pw / 2f).roundToInt().coerceIn(0, maxLeft)
-        val py = (vt - ph - dp(2f)).roundToInt()
+        val py = (vt + vh * PREVIEW_KEY_OVERLAP_FACTOR - ph).roundToInt()
         previewKey = k
         host.showKeyPreview(this, px.toFloat(), py.toFloat(), (px + pw).toFloat(), (py + ph).toFloat(), label)
         return true
@@ -954,6 +954,9 @@ class KeyboardView(context: Context) : View(context) {
 
         /** Önizleme balonundaki yazı boyutu ve köşe yarıçapı, tuşunkinin kaç katı. */
         const val PREVIEW_TEXT_FACTOR = 1.25f
+
+        /** Balonun alt kenarı tuşun görünür yüksekliğinin bu oranı kadar tuşun üstüne biner; 0 = tuşun hemen üstünde. */
+        const val PREVIEW_KEY_OVERLAP_FACTOR = 0.35f
 
         /** Yatay kenar boşluğu (her yan): 12 birimlik satır = genişlik − 2 × bu. */
         const val EDGE_H_DP = 1f
