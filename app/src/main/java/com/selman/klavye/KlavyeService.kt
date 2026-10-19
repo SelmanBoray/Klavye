@@ -70,6 +70,11 @@ class KlavyeService : InputMethodService() {
     private var currentLayout: KeyboardLayout? = null
     private var shownShift: ShiftState? = null
     private var shownSuggestions: List<String> = emptyList()
+    /**
+     * Öneri satırı açık mı: alan açılınca kapalı, klavyeden ilk düzenlemeyle açılır. Satır yalnız bu
+     * bayrak açıkken ve klavye panelindeyken görünür ([updateStripVisibility]).
+     */
+    private var stripActive = false
 
     // ---- Alan bilgisi (onStartInputView'da EditorInfo'dan) ----
     private var inputViewStarted = false
@@ -115,26 +120,34 @@ class KlavyeService : InputMethodService() {
 
     private val keyListener = object : KeyboardActionListener {
         override fun onKey(key: Key) {
+            // Yalnız metni düzenleyen tuşlar öneri satırını açar (shift/düzen/emoji tuşları açmaz).
+            when (key.type) {
+                KeyType.CHAR, KeyType.SPACE, KeyType.DELETE, KeyType.ENTER -> activateStrip()
+                else -> Unit
+            }
             handleKey(key)
         }
 
         override fun onText(text: String) {
+            activateStrip()
             // Görünüm shift açıksa metni zaten büyütmüş olarak verir.
             typeText(text, applyShift = false)
+        }
+
+        override fun onDeleteWord() {
+            activateStrip()
+            handleDeleteWord()
+        }
+
+        override fun onSpecialLongPress(key: Key) {
+            // Araç çubuğu yok: pano emoji tuşuna uzun basınca açılır. Diğer özel tuşlar yok sayılır.
+            if (key.type == KeyType.EMOJI) showClipboardPanel()
         }
     }
 
     private val stripListener = object : SuggestionStripListener {
         override fun onSuggestionPicked(word: String) {
             pickSuggestion(word)
-        }
-
-        override fun onEmojiClicked() {
-            if (panel == Panel.EMOJI) showKeyboardPanel() else showEmojiPanel()
-        }
-
-        override fun onClipboardClicked() {
-            if (panel == Panel.CLIPBOARD) showKeyboardPanel() else showClipboardPanel()
         }
     }
 
@@ -212,6 +225,8 @@ class KlavyeService : InputMethodService() {
         panel = Panel.KEYBOARD
         shownSuggestions = emptyList()
         renderSuggestions()
+        // Satır, ağaç pencereye eklenmeden önce doğru görünürlükte başlar (normalde GONE).
+        updateStripVisibility()
         return root
     }
 
@@ -233,6 +248,9 @@ class KlavyeService : InputMethodService() {
         expCount = 0
         if (!restarting) {
             shift.reset()
+            // Yeni alan / yeni gösterim: satır kapalı açılır. Yeniden başlatmada (bazı uygulamalar
+            // yazarken restartInput yapar) dokunulmaz; yoksa satır kaybolup uygulama zıplar.
+            stripActive = false
             showKeyboardPanel()
         }
         if (!restarting || fieldNumeric != startedNumeric || currentLayout == null) {
@@ -252,11 +270,14 @@ class KlavyeService : InputMethodService() {
             pushShiftState()
             updateSuggestions()
         }
+        updateStripVisibility()
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
         inputViewStarted = false
+        stripActive = false
+        updateStripVisibility()
         if (::suggester.isInitialized) suggester.flush()
     }
 
@@ -486,6 +507,58 @@ class KlavyeService : InputMethodService() {
     }
 
     /**
+     * Silme tuşu basılı tutulurken her tekrarda bir kelime adımı (WordUtils.wordDeleteLength: sondaki
+     * satır sonu tek başına; yoksa sondaki boşluklar + önceki kelime ya da noktalama/emoji dizisi).
+     * Yapı ve defter tutma [handleDelete] ile aynı: seçim varsa seçim silinir; adım gölgeden
+     * deleteSurroundingText ile silinir; TYPE_NULL alanda ya da gölge boşken tek KEYCODE_DEL gönderilir.
+     */
+    private fun handleDeleteWord() {
+        val ic = currentInputConnection ?: return
+        lastAction = LastAction.NONE
+        val base = cursorBase()
+        if (hasSelection()) {
+            ic.commitText("", 1)
+            // İmleçten (seçim başından) önceki metin değişmez.
+            applyLocalEdit(textBefore)
+            expectCursor(base)
+        } else {
+            var t = textBefore
+            var n = WordUtils.wordDeleteLength(t)
+            // Gölge alan başını bilmiyor ve adım gölgenin başına dayanıyorsa kelimenin kalanı gölgenin
+            // dışında olabilir: editörden bir kez taze oku (bekleyen düzenlemelerimizden sonra işlenir).
+            if (!nullField && !shadowFromStart && n >= t.length) {
+                val read = ic.getTextBeforeCursor(CONTEXT_LEN, 0)?.toString()
+                if (read != null) {
+                    textBefore = read
+                    shadowFromStart = read.length < CONTEXT_LEN
+                    t = read
+                    n = WordUtils.wordDeleteLength(t)
+                }
+            }
+            n = n.coerceIn(0, t.length)
+            // Okunan pencere bir surrogate çiftinin ortasından başlıyorsa yarım çift silinmez.
+            if (n == t.length && n > 0 && !shadowFromStart && Character.isLowSurrogate(t[0])) n--
+            if (!nullField && n > 0) {
+                ic.deleteSurroundingText(n, 0)
+                expectCursor(if (base >= n) base - n else UNKNOWN)
+                applyLocalEdit(t.substring(0, t.length - n))
+                // Adım mevcut kelimeyi baştan siler (ya da yalnız ayırıcı/satır sonu): sayılmış kelimeye dönülür.
+                wordTyped = false
+            } else {
+                // handleDelete'in tuş olayı dalı (alan başında çip silme gibi davranışlar korunur).
+                val shortened = removeLastGrapheme(t)
+                sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
+                expectCursor(UNKNOWN)
+                applyLocalEdit(shortened)
+                if (WordUtils.currentWord(t).isEmpty() || WordUtils.currentWord(shortened).isEmpty()) {
+                    wordTyped = false
+                }
+            }
+        }
+        afterLocalEdit(ic)
+    }
+
+    /**
      * Eylemli alan: performEditorAction. Çok satırlı metin alanı: commitText("\n") (sıralı).
      * Tek satırlı ve eylemsiz alan ile TYPE_NULL: KEYCODE_ENTER — tek satırlı editöre "\n" metni
      * girmesin, editör Enter'ı kendisi yorumlasın (TextView: onEditorAction(IME_NULL)/odak geçişi,
@@ -634,6 +707,23 @@ class KlavyeService : InputMethodService() {
         strip.setSuggestions(shown)
     }
 
+    /** Klavyeden metin düzenlendi: öneri satırı açılır (klavye panelindeyse görünür olur). */
+    private fun activateStrip() {
+        stripActive = true
+        updateStripVisibility()
+    }
+
+    /**
+     * Öneri satırı yalnız [stripActive] ve klavye panelindeyken VISIBLE, aksi halde GONE. Satır IME
+     * yüksekliğini değiştirir (uygulama yeniden boyutlanır): görünürlük yalnız gerçekten değişince yazılır.
+     * Satır GONE iken de öneriler güncellenir; açıldığında güncel kelimeleri gösterir.
+     */
+    private fun updateStripVisibility() {
+        val strip = stripView ?: return
+        val v = if (stripActive && panel == Panel.KEYBOARD) View.VISIBLE else View.GONE
+        if (strip.visibility != v) strip.visibility = v
+    }
+
     /** Ayırıcıda: yalnız bu oturumda klavyeyle yazılmış ve henüz sayılmamış kelime, bir kez. */
     private fun learnCurrentWord() {
         if (!wordTyped) return
@@ -652,6 +742,8 @@ class KlavyeService : InputMethodService() {
     private fun commitEmoji(emoji: String) {
         if (emoji.isEmpty()) return
         val ic = currentInputConnection ?: return
+        // Emoji panelindeyken satır GONE kalır; klavyeye dönünce görünür.
+        activateStrip()
         learnCurrentWord()
         val base = cursorBase()
         ic.commitText(emoji, 1)
@@ -665,6 +757,8 @@ class KlavyeService : InputMethodService() {
     private fun pasteClip(text: String) {
         if (text.isEmpty()) return
         val ic = currentInputConnection ?: return
+        // showKeyboardPanel aşağıda satırı görünür yapar.
+        activateStrip()
         val base = cursorBase()
         ic.commitText(text, 1)
         applyLocalEdit(textBefore + text)
@@ -681,6 +775,7 @@ class KlavyeService : InputMethodService() {
         clipboardPanel?.visibility = View.GONE
         keyboardView?.visibility = View.VISIBLE
         panel = Panel.KEYBOARD
+        updateStripVisibility()
     }
 
     private fun showEmojiPanel() {
@@ -690,7 +785,7 @@ class KlavyeService : InputMethodService() {
         val p = emojiPanel ?: EmojiPanelView(this).also { ep ->
             ep.setTheme(klavyeTheme)
             ep.onEmoji = { e -> commitEmoji(e) }
-            ep.onDelete = { handleDelete() }
+            ep.onDelete = { activateStrip(); handleDelete() }
             ep.onClose = { showKeyboardPanel() }
             ep.visibility = View.GONE
             frame.addView(ep, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, h))
@@ -702,6 +797,7 @@ class KlavyeService : InputMethodService() {
         // INVISIBLE: klavye yerini korur, çerçevenin yüksekliği değişmez.
         kv.visibility = View.INVISIBLE
         panel = Panel.EMOJI
+        updateStripVisibility()
     }
 
     private fun showClipboardPanel() {
@@ -723,6 +819,7 @@ class KlavyeService : InputMethodService() {
         p.visibility = View.VISIBLE
         kv.visibility = View.INVISIBLE
         panel = Panel.CLIPBOARD
+        updateStripVisibility()
     }
 
     private fun keyboardHeight(kv: KeyboardView): Int {

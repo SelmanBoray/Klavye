@@ -19,7 +19,6 @@ package com.selman.klavye.ui
  * @property keyGapDp tuşlar arası boşluk (dp)
  * @property keyTextSizeSp tuş yazı boyutu (sp)
  * @property hintTextSizeSp ipucu yazı boyutu (sp)
- * @property toolbarBackground öneri satırının üstündeki düğme şeridinin zemini
  */
 data class KlavyeTheme(
     val background: Int,
@@ -37,8 +36,7 @@ data class KlavyeTheme(
     val keyCornerRadiusDp: Float,
     val keyGapDp: Float,
     val keyTextSizeSp: Float,
-    val hintTextSizeSp: Float,
-    val toolbarBackground: Int = 0xFF212121.toInt()
+    val hintTextSizeSp: Float
 )
 
 object Themes {
@@ -59,7 +57,6 @@ object Themes {
         keyCornerRadiusDp = 7.3f, // ölçüldü (~20 px)
         keyGapDp = 6.5f, // ölçüldü (18 px)
         keyTextSizeSp = 22f, // ölçüldü
-        hintTextSizeSp = 10f, // tahmin
-        toolbarBackground = 0xFF212121.toInt() // ölçüldü, RE ile doğrulandı
+        hintTextSizeSp = 10f // tahmin
     )
 }

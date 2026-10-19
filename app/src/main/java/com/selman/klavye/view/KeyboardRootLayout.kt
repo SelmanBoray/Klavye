@@ -14,8 +14,9 @@ import android.widget.LinearLayout
  * tamponu yeni tuşun üstünde görünüyordu. Burada konum ve etiket aynı görüntü listesine aynı
  * karede kaydedilir; konumla etiket birbirinden ayrı güncellenemez.
  *
- * Şerit klavyenin üstünde olduğu için en üst sıranın balonu da bu görünümün içine sığar; sığmazsa
- * dikdörtgen boyutu korunarak içeri kaydırılır. Kökün geçersiz kılınması yalnız kökün kendi görüntü
+ * Öneri şeridi yalnız yazarken görünür (~41,5 dp, aksi halde GONE); bu yüzden en üst sıranın
+ * üstünde balon için yer az olabilir ya da hiç olmayabilir. Taşma küçükse (balon yüksekliğinin %40'ı) balon içeri kaydırılır,
+ * büyükse tuşu örtmemesi için hiç çizilmez. Kökün geçersiz kılınması yalnız kökün kendi görüntü
  * listesini yeniden kaydeder, çocukların RenderNode'ları yeniden kullanılır. dispatchDraw tahsis yapmaz.
  */
 class KeyboardRootLayout(context: Context) : LinearLayout(context) {
@@ -40,7 +41,9 @@ class KeyboardRootLayout(context: Context) : LinearLayout(context) {
     /**
      * Balonu gösterir ya da yeni tuşa/etikete taşır. Dikdörtgen [source]'un yerel koordinatındadır;
      * iki görünümün pencere konumu farkıyla bu görünümün koordinatına çevrilir, sonra boyutu
-     * korunarak sınırların içine kaydırılır (üst ≥ 0, yatayda [0, genişlik]).
+     * korunarak yatayda [0, genişlik] içine kaydırılır. Dikeyde üst taşması balon yüksekliğinin
+     * [MAX_TOP_OVERFLOW_RATIO] oranını aşmıyorsa üst 0'a çekilir; aşıyorsa balon sığmıyor demektir,
+     * gösterilmez ([hideKeyPreview] çağrılır).
      */
     fun showKeyPreview(source: View, left: Float, top: Float, right: Float, bottom: Float, label: String) {
         val w = width.toFloat()
@@ -57,7 +60,15 @@ class KeyboardRootLayout(context: Context) : LinearLayout(context) {
         // Önce sağ kenar, sonra sol: balon görünümden genişse sola yaslanır.
         if (l + pw > w) l = w - pw
         if (l < 0f) l = 0f
-        if (t < 0f) t = 0f
+        if (t < 0f) {
+            // Üstte yeterli yer yok (şerit gizli ya da dar): küçük taşma aşağı kaydırılır,
+            // büyük taşmada balon tuşu ve alttaki sırayı örteceği için hiç gösterilmez.
+            if (-t > ph * MAX_TOP_OVERFLOW_RATIO) {
+                hideKeyPreview()
+                return
+            }
+            t = 0f
+        }
         previewLeft = l
         previewTop = t
         previewRight = l + pw
@@ -72,6 +83,15 @@ class KeyboardRootLayout(context: Context) : LinearLayout(context) {
         if (!previewVisible) return
         previewVisible = false
         invalidate()
+    }
+
+    companion object {
+        /**
+         * Balonun üstten taşabileceği en büyük pay (balon yüksekliğine oranla). Bunun içindeki
+         * taşma balonu aşağı kaydırarak giderilir (tuşun üstü biraz örtülür); fazlası için
+         * balon gösterilmez.
+         */
+        private const val MAX_TOP_OVERFLOW_RATIO = 0.4f
     }
 
     override fun dispatchDraw(canvas: Canvas) {

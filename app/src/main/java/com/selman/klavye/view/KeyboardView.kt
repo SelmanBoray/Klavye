@@ -34,6 +34,12 @@ interface KeyboardActionListener {
 
     /** Uzun basma panelinden bir metin seçildi. */
     fun onText(text: String)
+
+    /** Silme tuşu basılı tutuluyor: her tekrar bir kelime siler. İlk dokunuş yine onKey(DELETE) ile tek karakter siler. */
+    fun onDeleteWord()
+
+    /** Uzun basma seçeneği olmayan özel tuşa uzun basıldı (şimdilik yalnız EMOJI → pano). Bu dokunuşta onKey çağrılmaz. */
+    fun onSpecialLongPress(key: Key)
 }
 
 /**
@@ -140,7 +146,6 @@ class KeyboardView(context: Context) : View(context) {
     private var panelStartY = 0f
     private var panelLeft = 0f
     private var panelTop = 0f
-    private var repeatCount = 0
 
     private val timerHandler = Handler(Looper.getMainLooper())
     private val longPressRunnable = Runnable { onLongPressTimeout() }
@@ -324,7 +329,7 @@ class KeyboardView(context: Context) : View(context) {
     private fun configurePreviewHost() {
         if (!KEY_PREVIEW_ENABLED) return
         val t = currentTheme
-        previewHost?.configurePreview(t.popupBackground, t.popupText, keyTextPx * 1.5f, cornerPx * 1.5f)
+        previewHost?.configurePreview(t.popupBackground, t.popupText, keyTextPx * PREVIEW_TEXT_FACTOR, cornerPx * PREVIEW_TEXT_FACTOR)
     }
 
     /** Tuş hücrelerini mevcut genişlik/yüksekliğe göre hesaplar (onDraw'da değil). */
@@ -608,7 +613,6 @@ class KeyboardView(context: Context) : View(context) {
     private fun onPointerDown(id: Int, x: Float, y: Float) {
         val k = hitTest(x, y)
         if (k < 0) return
-        performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         activePointerId = id
         activeKey = k
         lastX = x
@@ -619,14 +623,16 @@ class KeyboardView(context: Context) : View(context) {
         val key = keys[k]
         if (key.type == KeyType.DELETE) {
             hidePreview()
-            repeatCount = 0
+            // Basılı kalırsa REPEAT_START_DELAY_MS sonra kelime kelime silmeye geçilir.
             timerHandler.postDelayed(repeatRunnable, REPEAT_START_DELAY_MS)
-            // Silme basınca hemen bir kez; kalkınca ek çağrı yok.
+            // Silme basınca hemen bir kez (tek karakter); kalkınca ek çağrı yok.
             listener?.onKey(key)
         } else {
-            if (key.longPress.isNotEmpty()) timerHandler.postDelayed(longPressRunnable, LONG_PRESS_MS)
+            if (hasLongPress(key)) timerHandler.postDelayed(longPressRunnable, LONG_PRESS_MS)
             showPreview(k)
         }
+        // Titreşim en sonda: Xiaomi/HyperOS'ta senkron binder çağrısı, balon önce çizilsin.
+        performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
     }
 
     /**
@@ -652,7 +658,7 @@ class KeyboardView(context: Context) : View(context) {
         timerHandler.removeCallbacks(longPressRunnable)
         activeKey = nk
         if (releasing) return
-        if (nkey.longPress.isNotEmpty()) timerHandler.postDelayed(longPressRunnable, LONG_PRESS_MS)
+        if (hasLongPress(nkey)) timerHandler.postDelayed(longPressRunnable, LONG_PRESS_MS)
         showPreview(nk)
         invalidate()
     }
@@ -671,10 +677,22 @@ class KeyboardView(context: Context) : View(context) {
         }
     }
 
+    /** Uzun basma zamanlayıcısı kurulur mu: seçenek listesi olan tuşlar + seçeneksiz özel uzun basmalı EMOJI. */
+    private fun hasLongPress(key: Key): Boolean = key.longPress.isNotEmpty() || key.type == KeyType.EMOJI
+
     private fun onLongPressTimeout() {
         val k = activeKey
         if (k < 0 || k >= keyCount || activePointerId == INVALID_POINTER || longPressMode) return
         val key = keys[k]
+        if (key.type == KeyType.EMOJI) {
+            // EMOJI → pano. Durum ÖNCE temizlenir: bu parmağın sonraki UP/POINTER_UP'ı artık
+            // aktif parmak olmadığından onKey(EMOJI) üretmez. Dinleyici EN SON çağrılır (panel
+            // değiştirip bu görünümü gizleyebilir).
+            performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            resetTouch()
+            listener?.onSpecialLongPress(key)
+            return
+        }
         if (key.type == KeyType.DELETE || key.longPress.isEmpty()) return
         val options = if (shiftState != ShiftState.OFF) longPressUpper[k] else key.longPress
         // Panel gösterilemezse (pencere hazır değil) uzun basma normal dokunma gibi kalır.
@@ -696,19 +714,14 @@ class KeyboardView(context: Context) : View(context) {
         moreKeysContent.select(moreKeysContent.indexAt(x - panelLeft, y - panelTop))
     }
 
+    /** Silme basılı: her tikte bir kelime silinir ve titreşimle hissettirilir; dinleyici EN SON. */
     private fun onRepeatTick() {
         val k = activeKey
         if (k < 0 || k >= keyCount || activePointerId == INVALID_POINTER) return
-        val key = keys[k]
-        if (key.type != KeyType.DELETE) return
-        repeatCount++
-        val interval = when {
-            repeatCount < 10 -> 50L
-            repeatCount < 30 -> 40L
-            else -> 30L
-        }
-        timerHandler.postDelayed(repeatRunnable, interval)
-        listener?.onKey(key)
+        if (keys[k].type != KeyType.DELETE) return
+        timerHandler.postDelayed(repeatRunnable, WORD_DELETE_INTERVAL_MS)
+        performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+        listener?.onDeleteWord()
     }
 
     /** En yakın tuş; ölü bölge yok (boşluklar ve kenarlar en yakın tuşa gider). */
@@ -754,7 +767,6 @@ class KeyboardView(context: Context) : View(context) {
         activeKey = -1
         longPressMode = false
         panelMoved = false
-        repeatCount = 0
         hidePreview()
         dismissMoreKeys()
         invalidate()
@@ -811,8 +823,8 @@ class KeyboardView(context: Context) : View(context) {
         val vb = cellB[k] - half
         val vw = vr - vl
         val vh = vb - vt
-        val pw = min(max(vw * 1.25f, dp(40f)), width.toFloat()).roundToInt()
-        val ph = max(vh * 1.45f, dp(56f)).roundToInt()
+        val pw = min(max(vw * PREVIEW_WIDTH_FACTOR, dp(PREVIEW_MIN_WIDTH_DP)), width.toFloat()).roundToInt()
+        val ph = max(vh * PREVIEW_HEIGHT_FACTOR, dp(PREVIEW_MIN_HEIGHT_DP)).roundToInt()
         val maxLeft = (width - pw).coerceAtLeast(0)
         val px = ((vl + vr) / 2f - pw / 2f).roundToInt().coerceIn(0, maxLeft)
         val py = (vt - ph - dp(2f)).roundToInt()
@@ -911,6 +923,10 @@ class KeyboardView(context: Context) : View(context) {
         const val INVALID_POINTER = -1
         const val LONG_PRESS_MS = 300L
         const val REPEAT_START_DELAY_MS = 400L
+
+        /** Silme basılı tutulurken ([REPEAT_START_DELAY_MS] sonrası) iki kelime silme arasındaki süre (ms). */
+        const val WORD_DELETE_INTERVAL_MS = 250L
+
         const val MAX_PANEL_COLUMNS = 8
         const val REF_TEXT_SIZE = 100f
 
@@ -923,6 +939,21 @@ class KeyboardView(context: Context) : View(context) {
 
         /** Önizleme balonunun parmak basılı olsa bile ekranda kalabileceği en uzun süre (ms). */
         const val PREVIEW_MAX_VISIBLE_MS = 50L
+
+        /** Önizleme balonu genişliği = tuş görünür genişliği × bu çarpan. */
+        const val PREVIEW_WIDTH_FACTOR = 1.0f
+
+        /** Önizleme balonu yüksekliği = tuş görünür yüksekliği × bu çarpan. */
+        const val PREVIEW_HEIGHT_FACTOR = 1.15f
+
+        /** Önizleme balonunun en küçük genişliği (dp). */
+        const val PREVIEW_MIN_WIDTH_DP = 32f
+
+        /** Önizleme balonunun en küçük yüksekliği (dp). */
+        const val PREVIEW_MIN_HEIGHT_DP = 46f
+
+        /** Önizleme balonundaki yazı boyutu ve köşe yarıçapı, tuşunkinin kaç katı. */
+        const val PREVIEW_TEXT_FACTOR = 1.25f
 
         /** Yatay kenar boşluğu (her yan): 12 birimlik satır = genişlik − 2 × bu. */
         const val EDGE_H_DP = 1f

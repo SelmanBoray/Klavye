@@ -3,7 +3,6 @@ package com.selman.klavye.view
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.RectF
 import android.graphics.Typeface
 import android.util.TypedValue
 import android.view.HapticFeedbackConstants
@@ -14,20 +13,15 @@ import com.selman.klavye.ui.Themes
 
 interface SuggestionStripListener {
     fun onSuggestionPicked(word: String)
-    fun onEmojiClicked()
-    fun onClipboardClicked()
 }
 
+/** Tek satırlık öneri çubuğu: 3 slot, ortadaki en iyi öneri. */
 class SuggestionStripView(context: Context) : View(context) {
 
     var listener: SuggestionStripListener? = null
 
     private val density = context.resources.displayMetrics.density
-    private val heightPx = (84f * density + 0.5f).toInt()
-    private val toolbarHeightPx = 42.5f * density
-    private val iconFirstCenterPx = 33f * density
-    private val iconSpacingPx = 54f * density
-    private val toolbarLinePaint = Paint()
+    private val heightPx = (41.5f * density + 0.5f).toInt()
 
     private var theme: KlavyeTheme = Themes.DARK
 
@@ -37,15 +31,9 @@ class SuggestionStripView(context: Context) : View(context) {
     private val shown = arrayOfNulls<String>(3)
 
     private val bgPaint = Paint()
-    private val toolbarPaint = Paint()
     private val pressPaint = Paint()
-    private val dividerPaint = Paint()
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val boldPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val iconStroke = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val iconFill = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val rect = RectF()
-    private val rect2 = RectF()
 
     private var textBaselineOffset = 0f
 
@@ -56,12 +44,6 @@ class SuggestionStripView(context: Context) : View(context) {
         textPaint.textAlign = Paint.Align.CENTER
         boldPaint.textAlign = Paint.Align.CENTER
         boldPaint.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-        iconStroke.style = Paint.Style.STROKE
-        iconStroke.strokeCap = Paint.Cap.ROUND
-        iconStroke.strokeWidth = 1.5f * density
-        iconFill.style = Paint.Style.FILL
-        dividerPaint.strokeWidth = 1f
-        toolbarLinePaint.color = 0xFF292929.toInt()
         applyTheme()
     }
 
@@ -95,9 +77,7 @@ class SuggestionStripView(context: Context) : View(context) {
 
     private fun applyTheme() {
         bgPaint.color = theme.stripBackground
-        toolbarPaint.color = theme.toolbarBackground
         pressPaint.color = theme.keyPressed
-        dividerPaint.color = theme.divider
         val size = TypedValue.applyDimension(
             TypedValue.COMPLEX_UNIT_SP, 19.5f, resources.displayMetrics
         )
@@ -106,8 +86,6 @@ class SuggestionStripView(context: Context) : View(context) {
         textPaint.color = theme.stripText
         textPaint.alpha = (255 * 0.58f).toInt()
         boldPaint.color = theme.stripText
-        iconStroke.color = theme.stripText
-        iconFill.color = theme.stripText
         val fm = textPaint.fontMetrics
         textBaselineOffset = -(fm.ascent + fm.descent) / 2f
     }
@@ -153,30 +131,16 @@ class SuggestionStripView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
-        val tb = toolbarHeightPx
         canvas.drawRect(0f, 0f, w, h, bgPaint)
 
-        // Üst şerit: düğmeler
-        canvas.drawRect(0f, 0f, w, tb, toolbarPaint)
-        for (i in 0 until 2) {
-            val cx = iconFirstCenterPx + i * iconSpacingPx
-            if (pressedSlot == TOOL_BASE + i) {
-                canvas.drawRect(cx - iconSpacingPx / 2f, 0f, cx + iconSpacingPx / 2f, tb, pressPaint)
-            }
-            val cy = tb / 2f
-            if (i == 0) drawEmojiIcon(canvas, cx, cy) else drawClipboardIcon(canvas, cx, cy)
-        }
-        canvas.drawRect(0f, 0f, w, 1f, toolbarLinePaint)
-        canvas.drawRect(0f, tb - 1f, w, tb, dividerPaint)
-
-        // Alt şerit: öneriler
+        // Öneriler
         if (count == 0) return
         val slotW = w / 3f
-        val cy = tb + (h - tb) / 2f
+        val cy = h / 2f
         for (slot in 0 until 3) {
             val left = slot * slotW
             if (pressedSlot == slot) {
-                canvas.drawRect(left, tb, left + slotW, h, pressPaint)
+                canvas.drawRect(left, 0f, left + slotW, h, pressPaint)
             }
             val text = shown[slot] ?: continue
             val p = if (slot == 1) boldPaint else textPaint
@@ -184,38 +148,8 @@ class SuggestionStripView(context: Context) : View(context) {
         }
     }
 
-    private fun drawEmojiIcon(canvas: Canvas, cx: Float, cy: Float) {
-        val r = 12f * density
-        canvas.drawCircle(cx, cy, r, iconStroke)
-        val eyeR = 1.3f * density
-        canvas.drawCircle(cx - r * 0.38f, cy - r * 0.25f, eyeR, iconFill)
-        canvas.drawCircle(cx + r * 0.38f, cy - r * 0.25f, eyeR, iconFill)
-        val m = r * 0.55f
-        rect.set(cx - m, cy - m, cx + m, cy + m)
-        canvas.drawArc(rect, 25f, 130f, false, iconStroke)
-    }
-
-    private fun drawClipboardIcon(canvas: Canvas, cx: Float, cy: Float) {
-        val hw = 9.5f * density
-        val hh = 12f * density
-        rect.set(cx - hw, cy - hh + 2f * density, cx + hw, cy + hh)
-        canvas.drawRoundRect(rect, 2f * density, 2f * density, iconStroke)
-        val cw = 5f * density
-        rect2.set(cx - cw, cy - hh, cx + cw, cy - hh + 4f * density)
-        canvas.drawRoundRect(rect2, 1.5f * density, 1.5f * density, iconFill)
-        val lx = 5f * density
-        canvas.drawLine(cx - lx, cy + 1f * density, cx + lx, cy + 1f * density, iconStroke)
-        canvas.drawLine(cx - lx, cy + 5f * density, cx + lx * 0.4f, cy + 5f * density, iconStroke)
-    }
-
     private fun slotAt(x: Float, y: Float): Int {
         if (y < 0f || y > height || x < 0f) return -1
-        if (y < toolbarHeightPx) {
-            val rel = x - (iconFirstCenterPx - iconSpacingPx / 2f)
-            if (rel < 0f) return -1
-            val i = (rel / iconSpacingPx).toInt()
-            return if (i in 0..1) TOOL_BASE + i else -1
-        }
         if (count == 0) return -1
         val w = width
         if (w <= 0 || x >= w) return -1
@@ -255,12 +189,8 @@ class SuggestionStripView(context: Context) : View(context) {
                 if (fire) {
                     val l = listener
                     if (l != null) {
-                        if (slot >= TOOL_BASE) {
-                            if (slot == TOOL_BASE) l.onEmojiClicked() else l.onClipboardClicked()
-                        } else {
-                            val word = slotWord(slot)
-                            if (word != null) l.onSuggestionPicked(word)
-                        }
+                        val word = slotWord(slot)
+                        if (word != null) l.onSuggestionPicked(word)
                     }
                 }
                 return true
@@ -275,9 +205,5 @@ class SuggestionStripView(context: Context) : View(context) {
             }
         }
         return super.onTouchEvent(event)
-    }
-
-    private companion object {
-        const val TOOL_BASE = 10
     }
 }

@@ -174,4 +174,98 @@ class WordUtilsTest {
     fun previousWord_emojiWithSpaces() {
         assertEquals("abc", WordUtils.previousWord("abc 😀 def"))
     }
+
+    // ---- wordDeleteLength ----
+
+    @Test
+    fun wordDeleteLength_empty_zero() {
+        assertEquals(0, WordUtils.wordDeleteLength(""))
+    }
+
+    @Test
+    fun wordDeleteLength_lastWord() {
+        assertEquals(5, WordUtils.wordDeleteLength("merhaba dünya"))
+    }
+
+    @Test
+    fun wordDeleteLength_trailingSpaceAndWord() {
+        assertEquals(8, WordUtils.wordDeleteLength("merhaba "))
+    }
+
+    @Test
+    fun wordDeleteLength_commaAndSpace() {
+        assertEquals(2, WordUtils.wordDeleteLength("merhaba, "))
+    }
+
+    @Test
+    fun wordDeleteLength_newlineOnly() {
+        assertEquals(1, WordUtils.wordDeleteLength("satır\n"))
+        assertEquals(1, WordUtils.wordDeleteLength("\n\n"))
+    }
+
+    @Test
+    fun wordDeleteLength_spacesAfterNewline() {
+        assertEquals(3, WordUtils.wordDeleteLength("satır\n   "))
+    }
+
+    @Test
+    fun wordDeleteLength_onlySpaces() {
+        assertEquals(3, WordUtils.wordDeleteLength("   "))
+    }
+
+    @Test
+    fun wordDeleteLength_apostropheSuffix() {
+        assertEquals(9, WordUtils.wordDeleteLength("Ankara'ya"))
+    }
+
+    @Test
+    fun wordDeleteLength_typographicApostropheSuffix() {
+        assertEquals(9, WordUtils.wordDeleteLength("Ankara’ya"))
+    }
+
+    @Test
+    fun wordDeleteLength_apostropheNotAfterWord() {
+        assertEquals(2, WordUtils.wordDeleteLength("x 'ya"))
+    }
+
+    @Test
+    fun wordDeleteLength_emojiStopsAtSpace() {
+        assertEquals(2, WordUtils.wordDeleteLength("naber 😀"))
+    }
+
+    @Test
+    fun wordDeleteLength_emojiThenSpace() {
+        // Boşluk atlanır, emoji (vekil çift) bölünmeden gider.
+        assertEquals(3, WordUtils.wordDeleteLength("naber 😀 "))
+    }
+
+    @Test
+    fun wordDeleteLength_digitsWithDot() {
+        assertEquals(3, WordUtils.wordDeleteLength("12.345"))
+    }
+
+    @Test
+    fun wordDeleteLength_turkishCapitalI() {
+        assertEquals(1, WordUtils.wordDeleteLength("çğıöşü İ"))
+        assertEquals(7, WordUtils.wordDeleteLength("çğıöşü "))
+    }
+
+    @Test
+    fun wordDeleteLength_punctuationRun() {
+        assertEquals(3, WordUtils.wordDeleteLength("evet..."))
+        assertEquals(2, WordUtils.wordDeleteLength("ne?!"))
+    }
+
+    @Test
+    fun wordDeleteLength_zwjFamilyEmojiOneTick() {
+        // 👨‍👩‍👧 = 2 + 1 (ZWJ) + 2 + 1 + 2 = 8 karakter
+        val family = "👨‍👩‍👧"
+        assertEquals(8, family.length)
+        assertEquals(8, WordUtils.wordDeleteLength("a $family"))
+    }
+
+    @Test
+    fun wordDeleteLength_apostropheChainStopsAtSpace() {
+        assertEquals(9, WordUtils.wordDeleteLength("git Ankara'ya"))
+    }
 }
