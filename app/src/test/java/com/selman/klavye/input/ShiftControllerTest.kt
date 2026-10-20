@@ -6,11 +6,7 @@ import org.junit.Test
 
 class ShiftControllerTest {
 
-    private var t = 0L
-    private fun controller(): ShiftController {
-        t = 0L
-        return ShiftController { t }
-    }
+    private fun controller() = ShiftController()
 
     @Test
     fun baslangicOff() {
@@ -19,39 +15,32 @@ class ShiftControllerTest {
     }
 
     @Test
-    fun ciftDokunmaCapsLockSonraOff() {
+    fun offOnCapsLockOffDongusu() {
         val c = controller()
-        t = 0; c.onShiftKey()
+        c.onShiftKey()
         assertEquals(ShiftState.ON, c.state)
-        t = 200; c.onShiftKey()
+        c.onShiftKey()
         assertEquals(ShiftState.CAPS_LOCK, c.state)
-        t = 1000; c.onShiftKey()
+        c.onShiftKey()
         assertEquals(ShiftState.OFF, c.state)
     }
 
     @Test
-    fun yavasIkinciBasisOff() {
+    fun otomatikOnShiftCapsLockYapar() {
         val c = controller()
-        t = 0; c.onShiftKey()
+        c.applyAutoCaps(true)
         assertEquals(ShiftState.ON, c.state)
-        t = 500; c.onShiftKey()
-        assertEquals(ShiftState.OFF, c.state)
-    }
-
-    @Test
-    fun tam300msCapsLock() {
-        val c = controller()
-        t = 0; c.onShiftKey()
-        t = 300; c.onShiftKey()
+        c.onShiftKey()
         assertEquals(ShiftState.CAPS_LOCK, c.state)
     }
 
     @Test
-    fun the301msOff() {
+    fun elleOnShiftCapsLockYapar() {
         val c = controller()
-        t = 0; c.onShiftKey()
-        t = 301; c.onShiftKey()
-        assertEquals(ShiftState.OFF, c.state)
+        c.onShiftKey()
+        assertEquals(ShiftState.ON, c.state)
+        c.onShiftKey()
+        assertEquals(ShiftState.CAPS_LOCK, c.state)
     }
 
     @Test
@@ -66,8 +55,8 @@ class ShiftControllerTest {
     @Test
     fun capsLockKarakterdeKalir() {
         val c = controller()
-        t = 0; c.onShiftKey()
-        t = 100; c.onShiftKey()
+        c.onShiftKey()
+        c.onShiftKey()
         assertEquals(ShiftState.CAPS_LOCK, c.state)
         c.onCharacterTyped()
         assertEquals(ShiftState.CAPS_LOCK, c.state)
@@ -93,23 +82,12 @@ class ShiftControllerTest {
     @Test
     fun capsLockOtoCapsDegistirmez() {
         val c = controller()
-        t = 0; c.onShiftKey()
-        t = 100; c.onShiftKey()
+        c.onShiftKey()
+        c.onShiftKey()
         c.applyAutoCaps(false)
         assertEquals(ShiftState.CAPS_LOCK, c.state)
         c.applyAutoCaps(true)
         assertEquals(ShiftState.CAPS_LOCK, c.state)
-    }
-
-    @Test
-    fun otomatikOnShiftOffSonraHizliBasisOn() {
-        val c = controller()
-        c.applyAutoCaps(true)
-        assertEquals(ShiftState.ON, c.state)
-        t = 0; c.onShiftKey()
-        assertEquals(ShiftState.OFF, c.state)
-        t = 100; c.onShiftKey()
-        assertEquals(ShiftState.ON, c.state)
     }
 
     @Test
@@ -118,6 +96,17 @@ class ShiftControllerTest {
         c.applyAutoCaps(true)
         c.onCharacterTyped()
         assertEquals(ShiftState.OFF, c.state)
+    }
+
+    @Test
+    fun capsLocktanOffSonrasiTekrarOn() {
+        val c = controller()
+        c.onShiftKey()
+        c.onShiftKey()
+        c.onShiftKey()
+        assertEquals(ShiftState.OFF, c.state)
+        c.onShiftKey()
+        assertEquals(ShiftState.ON, c.state)
     }
 
     @Test
@@ -134,8 +123,8 @@ class ShiftControllerTest {
         c.reset()
         assertEquals(ShiftState.OFF, c.state)
 
-        t = 0; c.onShiftKey()
-        t = 100; c.onShiftKey()
+        c.onShiftKey()
+        c.onShiftKey()
         assertEquals(ShiftState.CAPS_LOCK, c.state)
         c.reset()
         assertEquals(ShiftState.OFF, c.state)

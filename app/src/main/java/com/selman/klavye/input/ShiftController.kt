@@ -5,9 +5,10 @@ import com.selman.klavye.layout.ShiftState
 /**
  * Shift durum makinesi (saf Kotlin, android.* yok).
  *
- * @param now milisaniye cinsinden monoton saat (serviste SystemClock::uptimeMillis).
+ * Shift tuşu zamandan bağımsız üç durumlu bir döngüdür: OFF -> ON -> CAPS_LOCK -> OFF
+ * (ON otomatik auto-caps ile de kurulmuş olabilir; döngü yine ON -> CAPS_LOCK ilerler).
  */
-class ShiftController(private val now: () -> Long) {
+class ShiftController {
 
     var state: ShiftState = ShiftState.OFF
         private set
@@ -15,29 +16,20 @@ class ShiftController(private val now: () -> Long) {
     /** ON durumu otomatik (auto-caps) mi yoksa elle mi kuruldu. Yalnız state == ON iken anlamlı. */
     private var autoOn: Boolean = false
 
-    /** Durumu elle ON yapan shift basışının zamanı. */
-    private var manualOnAt: Long = 0L
-    private var hasManualOnAt: Boolean = false
-
     fun onShiftKey() {
         when (state) {
             ShiftState.OFF -> {
                 state = ShiftState.ON
                 autoOn = false
-                manualOnAt = now()
-                hasManualOnAt = true
             }
             ShiftState.ON -> {
-                val t = now()
-                val isDoubleTap = !autoOn && hasManualOnAt && (t - manualOnAt) <= DOUBLE_TAP_MS
-                state = if (isDoubleTap) ShiftState.CAPS_LOCK else ShiftState.OFF
+                // Otomatik ya da elle fark etmez: ON'dan sonraki basış CAPS_LOCK.
+                state = ShiftState.CAPS_LOCK
                 autoOn = false
-                hasManualOnAt = false
             }
             ShiftState.CAPS_LOCK -> {
                 state = ShiftState.OFF
                 autoOn = false
-                hasManualOnAt = false
             }
         }
     }
@@ -46,7 +38,6 @@ class ShiftController(private val now: () -> Long) {
         if (state == ShiftState.ON) {
             state = ShiftState.OFF
             autoOn = false
-            hasManualOnAt = false
         }
     }
 
@@ -55,7 +46,6 @@ class ShiftController(private val now: () -> Long) {
             if (state == ShiftState.OFF) {
                 state = ShiftState.ON
                 autoOn = true
-                hasManualOnAt = false
             }
         } else {
             if (state == ShiftState.ON && autoOn) {
@@ -68,11 +58,5 @@ class ShiftController(private val now: () -> Long) {
     fun reset() {
         state = ShiftState.OFF
         autoOn = false
-        manualOnAt = 0L
-        hasManualOnAt = false
-    }
-
-    private companion object {
-        const val DOUBLE_TAP_MS = 300L
     }
 }

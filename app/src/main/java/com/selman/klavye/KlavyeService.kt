@@ -55,7 +55,7 @@ class KlavyeService : InputMethodService() {
     private enum class ShadowCheck { MATCH, EXTEND, MISMATCH }
 
     private val klavyeTheme: KlavyeTheme = Themes.DARK
-    private val shift = ShiftController(SystemClock::uptimeMillis)
+    private val shift = ShiftController()
 
     private lateinit var suggester: Suggester
     private lateinit var clipboardHistory: ClipboardHistory
@@ -980,7 +980,21 @@ class KlavyeService : InputMethodService() {
         textBefore = read
         shadowFromStart = read.length < CONTEXT_LEN
         lastAction = LastAction.NONE
+        releaseCapsLockIfFieldEmpty(ic)
         resyncDerivedState(ic)
+    }
+
+    /**
+     * Caps lock açıkken alan dışarıdan tamamen boşaldıysa (ör. mesaj gönderildi, uygulama alanı
+     * temizledi) caps lock'u bırakır. Caps lock kapalıysa IPC yapmaz; imleç sonrası bilinmiyorsa
+     * ya da seçim varsa dokunmaz.
+     */
+    private fun releaseCapsLockIfFieldEmpty(ic: InputConnection) {
+        if (shift.state != ShiftState.CAPS_LOCK) return
+        if (textBefore.isNotEmpty()) return
+        if (hasSelection()) return
+        val after = ic.getTextAfterCursor(1, 0) ?: return
+        if (after.isEmpty()) shift.reset()
     }
 
     private fun resyncDerivedState(ic: InputConnection) {
