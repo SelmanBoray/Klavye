@@ -10,3 +10,6 @@ build/
 *.apk
 *.aab
 tools/_indirilen/
+*.jks
+*.keystore
+keystore.properties

@@ -8,6 +8,20 @@ SwiftKey'in Türkçe Q düzenini (tuş yerleri, genişlikler, sayı satırı, uz
 
 Neden yazıldı: SwiftKey'in telemetri servisi telefonda (Redmi) ana thread'i kilitleyip "uygulama yanıt vermiyor" hataları veriyordu ve klavye bazen açılmıyordu. Aynı düzende ama hafif ve internetsiz bir klavye istendi.
 
+## Kurulum (hazır APK)
+
+1. APK'yı https://github.com/SelmanBoray/Klavye/releases/latest adresinden indir (dosya adı `Klavye-<sürüm>.apk` biçiminde).
+2. Telefonda dosyayı aç. Android bilinmeyen kaynaktan yüklemeye izin isteyecek; dosyayı açan uygulamaya (ör. tarayıcı ya da dosya yöneticisi) izin ver. Xiaomi/HyperOS'ta ek bir güvenlik uyarısı çıkabilir.
+3. Kurulunca "Klavye" uygulamasını aç. Kurulum ekranındaki ilk düğme sistemin klavye ayarlarını açar (Klavye'yi orada etkinleştir), ikinci düğme klavye seçicisini açar (Klavye'yi seç).
+
+Doğrulama (isteğe bağlı): APK'nın imza sertifikası SHA-256 parmak izi şudur:
+
+```
+4D:08:B2:E0:1D:49:65:C7:27:7D:99:85:EF:47:B3:D7:FA:E8:54:44:2E:A3:A2:F4:52:AC:05:A3:EF:BB:D8:5C
+```
+
+`apksigner verify --print-certs Klavye-<sürüm>.apk` ile kontrol edilebilir. Güncellemeler aynı anahtarla imzalanır; böylece yeni sürüm eskisinin üstüne kurulur.
+
 ## Özellikler
 
 - Türkçe Q düzeni, sayı satırı, Türkçe harfler, uzun basınca ek harf ve semboller
@@ -38,7 +52,7 @@ Neden yazıldı: SwiftKey'in telemetri servisi telefonda (Redmi) ana thread'i ki
 
 Android 8.0+ (minSdk 26, targetSdk 36). Yalnızca Redmi Note 13 Pro 4G (HyperOS 3 / Android 16) üzerinde denendi; başka cihazlarda sorun çıkarsa issue açılabilir.
 
-## Derleme ve kurulum
+## Kaynaktan derleme
 
 JDK 17+ ve Android SDK gerekir.
 
@@ -48,7 +62,16 @@ JDK 17+ ve Android SDK gerekir.
 
 Windows'ta `gradlew.bat assembleRelease`. Çıktı: `app/build/outputs/apk/release/app-release.apk`
 
-Not: release derlemesi kolaylık için debug anahtarıyla imzalanır (`app/build.gradle.kts`). Dağıtmak isteyen kendi imza anahtarını ayarlamalıdır.
+Kendi anahtarınla imzalamak için `~/.gradle/gradle.properties` dosyasına şunları tanımla:
+
+```
+KLAVYE_STORE_FILE=C:/yol/anahtar.jks
+KLAVYE_STORE_PASSWORD=...
+KLAVYE_KEY_ALIAS=...
+KLAVYE_KEY_PASSWORD=...
+```
+
+Bunlar tanımlı değilse release APK debug anahtarıyla imzalanır; kendi telefonunda denemek için yeterlidir ama hazır APK'nın üstüne kurulamaz (önce kaldırmak gerekir).
 
 Testler (JVM birim testleri: shift, kelime işlemleri, öneri motoru):
 
